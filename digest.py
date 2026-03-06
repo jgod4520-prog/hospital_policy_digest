@@ -20,6 +20,7 @@ import requests
 from anthropic import Anthropic
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from ddgs import DDGS
 
 load_dotenv()
 
@@ -64,6 +65,14 @@ PREFILTER_KEYWORDS = [
     "conditions of participation",
     "inpatient",
     "outpatient",
+]
+
+SEARCH_QUERIES = [
+    "CMS hospital payment rule rulemaking",
+    "Medicare hospital payment policy HHS",
+    "federal hospital legislation Congress",
+    "hospital price transparency CMS",
+    "rural hospital federal policy",
 ]
 
 HEADERS = {
@@ -262,6 +271,36 @@ def scrape_axios_vitals() -> list[dict]:
         except Exception as exc:
             print(f"    Error fetching {edition_url}: {exc}")
 
+    return articles
+
+
+def search_web_articles(existing_urls: set[str]) -> list[dict]:
+    """Search DuckDuckGo News for each query and return new article dicts."""
+    articles = []
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    print("  Searching DuckDuckGo News...")
+    try:
+        ddgs = DDGS()
+        for query in SEARCH_QUERIES:
+            try:
+                results = ddgs.news(query, timelimit="w", max_results=8)
+                for r in results:
+                    url = r.get("url", "")
+                    if not url or url in existing_urls:
+                        continue
+                    existing_urls.add(url)
+                    articles.append({
+                        "source": "Web Search",
+                        "title": r.get("title", "").strip(),
+                        "url": url,
+                        "date": r.get("date", today)[:10],
+                        "content": r.get("body", "")[:800],
+                    })
+            except Exception as exc:
+                print(f"    Query '{query}' failed: {exc}")
+    except Exception as exc:
+        print(f"    DuckDuckGo search unavailable: {exc}")
+    print(f"    {len(articles)} new articles from web search")
     return articles
 
 
@@ -476,7 +515,7 @@ def format_html_email(digest: dict, week_label: str) -> str:
   {groups_html}
   <hr style="border:none;border-top:1px solid #ddd;margin:32px 0 16px;">
   <p style="font-size:11px;color:#aaa;line-height:1.6;">
-    Sources: Politico Healthcare, STAT News, KFF Health News, Roll Call, Becker's Hospital Review<br>
+    Sources: Politico Healthcare, STAT News, KFF Health News, Roll Call, Becker's Hospital Review, Web Search (DuckDuckGo)<br>
     Filtered and summarized using Claude ({MODEL}, Anthropic)
   </p>
 </body>
@@ -520,7 +559,11 @@ def main() -> None:
     # 1. Collect
     print("[1/4] Collecting articles...")
     all_articles = fetch_rss_articles()
-    print(f"  Total: {len(all_articles)} articles from RSS feeds\n")
+    existing_urls = {a["url"] for a in all_articles}
+    web_articles = search_web_articles(existing_urls)
+    all_articles.extend(web_articles)
+    print(f"  + {len(web_articles)} articles from web search")
+    print(f"  Total: {len(all_articles)} articles combined\n")
 
     if not all_articles:
         print("No articles found. Exiting without sending email.")
@@ -557,6 +600,8 @@ def list_articles() -> None:
     print(f"\n=== Article list: {week_label} ===\n")
 
     all_articles = fetch_rss_articles()
+    existing_urls = {a["url"] for a in all_articles}
+    all_articles.extend(search_web_articles(existing_urls))
     passed = keyword_prefilter(all_articles)
     passed_urls = {a["url"] for a in passed}
     rejected = [a for a in all_articles if a["url"] not in passed_urls]
