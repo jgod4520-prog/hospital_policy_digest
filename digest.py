@@ -10,10 +10,14 @@ import json
 import os
 import re
 import smtplib
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import feedparser
 import requests
@@ -73,6 +77,7 @@ SEARCH_QUERIES = [
     "federal hospital legislation Congress",
     "hospital price transparency CMS",
     "rural hospital federal policy",
+    "site:beckershospitalreview.com hospital CMS Medicare federal",
 ]
 
 HEADERS = {
